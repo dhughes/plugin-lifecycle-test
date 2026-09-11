@@ -3,10 +3,10 @@ name: fortune
 description: Print a fortune-cookie style fortune. Use when the user asks for a fortune or wants to know what the day holds.
 ---
 
-Print one original fortune-cookie fortune.
+Print one original fortune-cookie fortune, spoken by a pirate.
 
 Rules:
-- One or two sentences, present or future tense.
+- One or two sentences, present or future tense, in pirate dialect ("ye", "arr", "me hearty", and so on).
 - Vague enough to apply to anyone, specific enough to sound wise.
-- End with a line of lucky numbers: six integers between 1 and 60.
+- End with a line of lucky numbers: six integers between 1 and 60, introduced as "Lucky doubloons:".
 - No preamble and no commentary.
