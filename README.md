@@ -19,9 +19,20 @@ scripts/sync-beta                    makes each beta shim mirror its source fold
 scripts/release-plugin               cuts a stable release
 ```
 
-`plugins/` holds every file a plugin ships. `plugins-beta/` holds one shim per plugin: a manifest of its own, plus a symlink for every top-level folder and file in the source folder. Claude Code identifies a plugin and namespaces its skills by the `name` in its manifest, so the beta channel needs a manifest with a different name; everything else is mirrored. `scripts/sync-beta` maintains the symlinks.
+`plugins/` holds every file a plugin ships. `plugins-beta/` holds the beta shims, described below.
 
 No manifest in this repo has a `version` field. Versions live in the marketplace file.
+
+## Beta shims
+
+A beta shim is the folder Claude Code installs when a user installs `<name>-beta`. It contains no plugin files of its own. It has two things:
+
+- A manifest, `plugins-beta/<name>/.claude-plugin/plugin.json`, whose `name` is `<name>-beta`.
+- One symlink for every top-level folder and file in `plugins/<name>/`, pointing back into that folder.
+
+The shim exists because Claude Code identifies a plugin, and namespaces its skills, by the `name` in the manifest. Stable and beta must have different names, so the beta needs its own manifest. Everything else in the plugin is identical between channels, so it is symlinked rather than copied. When Claude Code installs the beta, it follows the symlinks and copies the real files into the user's plugin cache.
+
+**The shim only mirrors what has a symlink.** A folder or file added to `plugins/<name>/` without a matching symlink in the shim ships to stable and is missing from beta. `scripts/sync-beta` creates and removes the symlinks so the shim matches the source folder, and `scripts/sync-beta --check` fails if any shim is out of date. Run it whenever a top-level folder or file is added to or removed from a plugin.
 
 ## Channels
 
@@ -84,7 +95,9 @@ scripts/                    helpers referenced by hooks or skills
 
 Anthropic's [plugin guide](https://code.claude.com/docs/en/plugins) and [plugin reference](https://code.claude.com/docs/en/plugins-reference) describe every component type and its file format.
 
-After adding or removing a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>` so the shim mirrors it. Then test locally as described under [Develop locally](#develop-locally), validate, and open a pull request to `main`:
+**Important:** after adding or removing a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>`. Without it, the new component is missing from the [beta shim](#beta-shims) and beta users never see it.
+
+Then test locally as described under [Develop locally](#develop-locally), validate, and open a pull request to `main`:
 
 ```bash
 scripts/sync-beta --check
@@ -102,7 +115,7 @@ Do not add a `version` field to either manifest. A version in a manifest overrid
 
 Branch, edit files under `plugins/<name>/`, test locally as described below, open a pull request, merge. Merging publishes the change to beta users. Stable users are not affected until a release.
 
-If the change adds or removes a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>` and commit the shim change with it. `scripts/sync-beta --check` reports any shim that is out of date.
+**Important:** if the change adds or removes a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>` and commit the shim change in the same pull request. Otherwise the new component is missing from the [beta shim](#beta-shims). `scripts/sync-beta --check` reports any shim that is out of date.
 
 ## Develop locally
 
