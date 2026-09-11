@@ -184,7 +184,9 @@ EOF
 pr_url=$(gh pr create --draft --title "Release $plugin $new" --body-file "$body")
 rm -f "$body"
 
+# The remote branch backs the pull request; the local copy has no further use.
 git checkout --quiet main
+git branch --quiet -D "$release_branch"
 finished=true
 
 say "opened $pr_url"
