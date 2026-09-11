@@ -4,10 +4,10 @@
 #
 #   scripts/new-plugin <name> [description]
 #
-# Creates plugins/<name> with a manifest and a starter skill, the beta shim
-# at plugins-beta/<name>, and the <name>-beta entry in the marketplace.
-# Nothing is committed. Edit the skill, test with `claude --plugin-dir
-# ./plugins`, then open a pull request.
+# Creates plugins/<name> with a manifest, the beta shim at
+# plugins-beta/<name>, and the <name>-beta entry in the marketplace.
+# Nothing is committed. Add components to plugins/<name>, test with
+# `claude --plugin-dir ./plugins`, then open a pull request.
 #
 # Requires: git, jq, claude.
 
@@ -46,27 +46,13 @@ fi
 author=$(jq -r '.owner.name' "$marketplace")
 marketplace_name=$(jq -r '.name' "$marketplace")
 
-# Source folder: manifest without a version, and one starter skill named after the plugin.
-mkdir -p "plugins/$name/.claude-plugin" "plugins/$name/skills/$name"
+# Source folder: a manifest without a version. Components are added by the author.
+mkdir -p "plugins/$name/.claude-plugin"
 jq -n --arg n "$name" --arg d "$description" --arg a "$author" \
   '{name: $n, description: $d, author: {name: $a}}' > "plugins/$name/.claude-plugin/plugin.json"
 
-cat > "plugins/$name/skills/$name/SKILL.md" <<EOF
----
-name: $name
-description: $description. Use when the user asks for it by name.
----
-
-Replace this with the instructions Claude follows when the skill runs.
-
-The text the user types after the skill name is available as "\$ARGUMENTS".
-EOF
-
-# Beta shim: manifest without a version, skills symlinked into the source folder.
-mkdir -p "plugins-beta/$name/.claude-plugin"
-jq -n --arg n "$name-beta" --arg d "Beta of the $name plugin. Tracks main." --arg a "$author" \
-  '{name: $n, description: $d, author: {name: $a}}' > "plugins-beta/$name/.claude-plugin/plugin.json"
-ln -s "../../plugins/$name/skills" "plugins-beta/$name/skills"
+# Beta shim: sync-beta creates the manifest and mirrors the source folder.
+scripts/sync-beta "$name" >/dev/null
 
 # Marketplace: beta entry only. The release script adds the stable entry later.
 entry=$(jq -n --arg n "$name-beta" --arg d "Beta of the $name plugin. Tracks main." --arg s "./plugins-beta/$name" \
@@ -77,11 +63,18 @@ mv "$marketplace.tmp" "$marketplace"
 claude plugin validate . >/dev/null || die "marketplace validation failed"
 claude plugin validate "plugins/$name" >/dev/null || die "plugin validation failed"
 
-say "created plugins/$name"
+say "created plugins/$name/.claude-plugin/plugin.json"
 say "created plugins-beta/$name"
 say "added $name-beta to $marketplace"
 say ""
-say "Next:"
-say "  1. Edit plugins/$name/skills/$name/SKILL.md, or add more skills under plugins/$name/skills/."
-say "  2. Test: claude --plugin-dir ./plugins, then /$name:$name"
-say "  3. Open a pull request. Merging publishes $name-beta@$marketplace_name."
+say "Add components at the root of plugins/$name. Common ones:"
+say "  skills/<skill>/SKILL.md     a skill, invoked as /$name:<skill>"
+say "  agents/<agent>.md           a subagent"
+say "  hooks/hooks.json            event hooks"
+say "  .mcp.json                   MCP servers"
+say "  scripts/                    helpers referenced by hooks or skills"
+say "See https://code.claude.com/docs/en/plugins and https://code.claude.com/docs/en/plugins-reference"
+say ""
+say "After adding or removing a top-level folder or file, run: scripts/sync-beta $name"
+say "Test with: claude --plugin-dir ./plugins"
+say "Then open a pull request. Merging publishes $name-beta@$marketplace_name."
