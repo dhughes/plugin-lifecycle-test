@@ -1,8 +1,21 @@
 {
   "name": "plugin-lifecycle-test",
-  "owner": { "name": "Doug Hughes" },
+  "owner": {
+    "name": "Doug Hughes"
+  },
   "description": "Test bed for the two-channel plugin release lifecycle",
   "plugins": [
+    {
+      "name": "joke",
+      "description": "Writes a short joke about a topic you supply",
+      "version": "1.0.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "dhughes/plugin-lifecycle-test",
+        "path": "plugins/joke",
+        "ref": "joke--v1.0.0"
+      }
+    },
     {
       "name": "joke-beta",
       "description": "Beta of the joke plugin. Tracks main.",
