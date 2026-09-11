@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+#
+# release-plugin: cut a stable release of one plugin.
+#
+#   scripts/release-plugin <plugin> <major|minor|patch|X.Y.Z> [--dry-run]
+#
+# Tags the current main as <plugin>--v<version>, pushes the tag, then opens a
+# draft pull request that points the plugin's stable marketplace entry at that
+# tag with the new version. Merging the pull request is the release.
+#
+# Requires: git, gh (authenticated), jq, claude.
+
+set -euo pipefail
+
+usage() {
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+die() { printf 'release-plugin: %s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+
+[[ $# -ge 2 ]] || usage
+plugin=$1
+bump=$2
+dry_run=false
+[[ ${3:-} == "--dry-run" ]] && dry_run=true
+[[ $# -le 3 ]] || usage
+
+for tool in git gh jq claude; do
+  command -v "$tool" >/dev/null || die "$tool is required"
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+cd "$root"
+
+marketplace=.claude-plugin/marketplace.json
+manifest=plugins/$plugin/.claude-plugin/plugin.json
+[[ -f $marketplace ]] || die "$marketplace not found"
+[[ -f $manifest ]] || die "no plugin at plugins/$plugin"
+
+# The stable entry's version is the update signal. A version in the manifest
+# would override it, so the manifest must not have one.
+if jq -e 'has("version")' "$manifest" >/dev/null; then
+  die "$manifest has a version field; remove it, the marketplace entry carries the version"
+fi
+
+# Release only from a clean, current main.
+branch=$(git branch --show-current)
+[[ $branch == main ]] || die "on branch '$branch'; releases are cut from main"
+[[ -z $(git status --porcelain) ]] || die "working tree is not clean"
+git fetch --quiet origin main
+if [[ $(git rev-parse HEAD) != $(git rev-parse origin/main) ]]; then
+  die "local main is not at origin/main; run: git pull --ff-only"
+fi
+
+# Current released version comes from the stable entry, or 0.0.0 for a first release.
+current=$(jq -r --arg n "$plugin" '.plugins[] | select(.name == $n) | .version // empty' "$marketplace")
+first_release=false
+if [[ -z $current ]]; then
+  current=0.0.0
+  first_release=true
+fi
+
+semver='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+[[ $current =~ $semver ]] || die "current version '$current' in $marketplace is not semver"
+IFS=. read -r major minor patch <<<"${current%%[-+]*}"
+case $bump in
+  major) new=$((major + 1)).0.0 ;;
+  minor) new=$major.$((minor + 1)).0 ;;
+  patch) new=$major.$minor.$((patch + 1)) ;;
+  *)
+    [[ $bump =~ $semver ]] || die "'$bump' is not major, minor, patch, or a semver version"
+    new=$bump
+    ;;
+esac
+
+tag=$plugin--v$new
+if git rev-parse -q --verify "refs/tags/$tag" >/dev/null || git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+  die "tag $tag already exists"
+fi
+
+release_branch=release/$plugin-v$new
+if git ls-remote --exit-code --heads origin "$release_branch" >/dev/null 2>&1; then
+  die "branch $release_branch already exists on origin; is a release PR already open?"
+fi
+
+repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+marketplace_name=$(jq -r .name "$marketplace")
+description=$(jq -r '.description // ""' "$manifest")
+
+# Warn when nothing under the plugin changed since the last release.
+if ! $first_release; then
+  prev_tag=$plugin--v$current
+  if git rev-parse -q --verify "refs/tags/$prev_tag" >/dev/null \
+     && git diff --quiet "$prev_tag" HEAD -- "plugins/$plugin"; then
+    say "warning: plugins/$plugin has not changed since $prev_tag"
+  fi
+fi
+
+say "plugin:      $plugin"
+say "version:     $current -> $new"
+say "tag:         $tag at $(git rev-parse --short HEAD)"
+say "branch:      $release_branch"
+say "repo:        $repo"
+if $dry_run; then
+  say "dry run: nothing created"
+  exit 0
+fi
+
+tag_pushed=false
+finished=false
+on_exit() {
+  $finished && return
+  if $tag_pushed; then
+    say "" >&2
+    say "Tag $tag was pushed before the failure. To remove it:" >&2
+    say "  git push origin :refs/tags/$tag && git tag -d $tag" >&2
+  fi
+  git checkout --quiet main 2>/dev/null || true
+}
+trap on_exit EXIT
+
+git tag -a "$tag" -m "$plugin $new"
+git push --quiet origin "$tag"
+tag_pushed=true
+say "pushed tag $tag"
+
+git checkout --quiet -b "$release_branch"
+
+entry=$(jq -n --arg n "$plugin" --arg d "$description" --arg v "$new" \
+              --arg url "$repo" --arg path "plugins/$plugin" --arg ref "$tag" \
+  '{name: $n, description: $d, version: $v,
+    source: {source: "git-subdir", url: $url, path: $path, ref: $ref}}')
+
+jq --arg n "$plugin" --arg v "$new" --arg ref "$tag" --argjson entry "$entry" '
+  if any(.plugins[]; .name == $n) then
+    .plugins |= map(if .name == $n then .version = $v | .source.ref = $ref else . end)
+  else
+    (.plugins | map(.name) | index($n + "-beta")) as $i
+    | .plugins |= (if $i == null then . + [$entry] else .[:$i] + [$entry] + .[$i:] end)
+  end' "$marketplace" > "$marketplace.tmp"
+mv "$marketplace.tmp" "$marketplace"
+
+claude plugin validate . >/dev/null || die "marketplace validation failed"
+
+git add "$marketplace"
+git commit --quiet -m "Release $plugin $new"
+git push --quiet -u origin "$release_branch"
+
+if $first_release; then
+  summary="Adds the stable \`$plugin\` entry, pinned to tag \`$tag\` with version \`$new\`."
+else
+  summary="Moves the stable \`$plugin\` entry from \`$current\` to \`$new\`, pinned to tag \`$tag\`."
+fi
+
+tag_commit=$(git rev-parse --short "$tag^{commit}")
+body=$(mktemp)
+cat > "$body" <<EOF
+## Summary
+
+$summary The tag points at \`main\` commit $tag_commit.
+
+No plugin files change. Beta entries are not affected.
+
+## Verify before merging
+
+Point your marketplace at this clone and install the stable entry:
+
+\`\`\`bash
+claude plugin marketplace remove $marketplace_name
+claude plugin marketplace add $root
+claude plugin install $plugin@$marketplace_name
+\`\`\`
+
+Run the skills of the plugin. Then restore the marketplace:
+
+\`\`\`bash
+claude plugin marketplace remove $marketplace_name
+claude plugin marketplace add $repo
+\`\`\`
+EOF
+
+pr_url=$(gh pr create --draft --title "Release $plugin $new" --body-file "$body")
+rm -f "$body"
+
+git checkout --quiet main
+finished=true
+
+say "opened $pr_url"
+say ""
+say "Next: verify as described in the pull request, then mark it ready and merge."
+say "  gh pr ready $pr_url"
