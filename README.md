@@ -100,12 +100,12 @@ Anthropic's [plugin guide](https://code.claude.com/docs/en/plugins) and [plugin 
 Then test locally as described under [Develop locally](#develop-locally), validate, and open a pull request to `main`:
 
 ```bash
-scripts/sync-beta --check
-claude plugin validate .
-claude plugin validate plugins/<name>
+scripts/sync-beta --check             # every shim mirrors its source folder
+claude plugin validate .              # the marketplace file and each manifest it references
+claude plugin validate plugins/<name> # the plugin's manifest and component files
 ```
 
-The validator does not follow the symlinks in the beta shim, so validate the source folder directly as well. Both validate commands print a warning for every manifest without a version. That is expected. Do not pass `--strict`, which turns those warnings into failures.
+The marketplace validator does not follow the symlinks in the beta shim, so the plugin's files are only checked by the third command. Both validate commands print a warning for every manifest without a version. That is expected. Do not pass `--strict`, which turns those warnings into failures.
 
 Merging the pull request publishes the plugin to beta users.
 
