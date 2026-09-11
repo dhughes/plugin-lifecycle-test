@@ -8,12 +8,12 @@
     {
       "name": "joke",
       "description": "Writes a short joke about a topic you supply",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": {
         "source": "git-subdir",
         "url": "dhughes/plugin-lifecycle-test",
         "path": "plugins/joke",
-        "ref": "joke--v1.0.0"
+        "ref": "joke--v1.1.0"
       }
     },
     {
