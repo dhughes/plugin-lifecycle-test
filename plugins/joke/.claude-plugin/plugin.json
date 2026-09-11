@@ -1,0 +1,8 @@
+{
+  "name": "joke",
+  "description": "Writes a short joke about a topic you supply",
+  "version": "0.1.0",
+  "author": {
+    "name": "Doug Hughes"
+  }
+}

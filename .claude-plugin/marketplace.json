@@ -1,0 +1,17 @@
+{
+  "name": "plugin-lifecycle-test",
+  "owner": { "name": "Doug Hughes" },
+  "description": "Test bed for the two-channel plugin release lifecycle",
+  "plugins": [
+    {
+      "name": "joke-beta",
+      "description": "Beta of the joke plugin. Tracks main.",
+      "source": "./plugins/joke-beta"
+    },
+    {
+      "name": "fortune-beta",
+      "description": "Beta of the fortune plugin. Tracks main.",
+      "source": "./plugins/fortune-beta"
+    }
+  ]
+}
