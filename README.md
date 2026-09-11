@@ -12,6 +12,7 @@ plugins/<name>/                      source folder for each plugin
 plugins-beta/<name>/                 beta shim for each plugin
   .claude-plugin/plugin.json         name: <name>-beta, no version field
   skills -> ../../plugins/<name>/skills
+scripts/new-plugin                   scaffolds a plugin in its beta channel
 scripts/release-plugin               cuts a stable release
 ```
 
@@ -62,73 +63,37 @@ Skills are namespaced by plugin, so `/joke:joke` and `/joke-beta:joke` coexist.
 
 ## Create a new plugin
 
-1. Create the source folder with the `plugin-dev` plugin from Anthropic's official marketplace. It carries the current plugin-authoring conventions.
+```bash
+scripts/new-plugin <name> "<one-line description>"
+```
 
-   ```bash
-   claude plugin install plugin-dev@claude-plugins-official
-   ```
+`<name>` is kebab-case and becomes the skill namespace, so skills run as `/<name>:<skill>`. The script creates:
 
-   Start Claude Code at the repo root and run `/plugin-dev:create-plugin`. It asks questions as it goes. Answer these ones as follows:
+```
+plugins/<name>/.claude-plugin/plugin.json      manifest, no version field
+plugins/<name>/skills/<name>/SKILL.md          starter skill named after the plugin
+plugins-beta/<name>/.claude-plugin/plugin.json manifest named <name>-beta
+plugins-beta/<name>/skills                     symlink to ../../plugins/<name>/skills
+```
 
-   - **Plugin name**: `<name>`, kebab-case. This becomes the skill namespace, so `/<name>:<skill>`.
-   - **Where to create the plugin**: `plugins/<name>`.
-   - **Initialize a git repo**: no. The folder is already inside this repo.
+and adds the `<name>-beta` entry to `.claude-plugin/marketplace.json`. It does not add a stable entry; the release script does that at the first release. Nothing is committed.
 
-   Put user-invoked commands in `skills/<skill>/SKILL.md`, not in `commands/`.
+Then:
 
-2. Remove the `version` field the generator adds. `plugins/<name>/.claude-plugin/plugin.json` must look like this:
-
-   ```json
-   {
-     "name": "<name>",
-     "description": "<one line>",
-     "author": { "name": "<team or person>" }
-   }
-   ```
-
-   A version in the manifest overrides the marketplace entry's version and breaks stable updates. The release script refuses to release a plugin whose manifest has one.
-
-3. Create the beta shim by hand.
-
-   ```bash
-   mkdir -p plugins-beta/<name>/.claude-plugin
-   ln -s ../../plugins/<name>/skills plugins-beta/<name>/skills
-   ```
-
-   `plugins-beta/<name>/.claude-plugin/plugin.json`:
-
-   ```json
-   {
-     "name": "<name>-beta",
-     "description": "Beta of the <name> plugin. Tracks main.",
-     "author": { "name": "<team or person>" }
-   }
-   ```
-
-4. Add the beta entry to `.claude-plugin/marketplace.json`.
-
-   ```json
-   {
-     "name": "<name>-beta",
-     "description": "Beta of the <name> plugin. Tracks main.",
-     "source": "./plugins-beta/<name>"
-   }
-   ```
-
-   Do not add a stable entry. The release script adds it at the first release.
-
-5. Validate, then open a pull request to `main`.
+1. Edit `plugins/<name>/skills/<name>/SKILL.md`. Add more skills as `plugins/<name>/skills/<skill>/SKILL.md`, each with `name` and `description` in its frontmatter. Delete the starter skill if the plugin does not need one by that name.
+2. Test locally as described under [Develop locally](#develop-locally).
+3. Validate, then open a pull request to `main`.
 
    ```bash
    claude plugin validate .
    claude plugin validate plugins/<name>
    ```
 
-   The validator does not follow the symlink in the beta shim, so validate the source folder directly as well. Validating a shim prints a warning that its `skills` directory is a symlink; that is expected.
-
-   Both commands print a warning for every manifest without a version. That is also expected. Do not pass `--strict`, which turns those warnings into failures.
+   The validator does not follow the symlink in the beta shim, so validate the source folder directly as well. Both commands print a warning for every manifest without a version. That is expected. Do not pass `--strict`, which turns those warnings into failures.
 
 Merging the pull request publishes the plugin to beta users.
+
+Do not add a `version` field to either manifest. A version in a manifest overrides the marketplace entry's version and breaks stable updates. The release script refuses to release a plugin whose manifest has one.
 
 ## Change a plugin
 

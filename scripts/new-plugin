@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# new-plugin: scaffold a plugin in its beta channel.
+#
+#   scripts/new-plugin <name> [description]
+#
+# Creates plugins/<name> with a manifest and a starter skill, the beta shim
+# at plugins-beta/<name>, and the <name>-beta entry in the marketplace.
+# Nothing is committed. Edit the skill, test with `claude --plugin-dir
+# ./plugins`, then open a pull request.
+#
+# Requires: git, jq, claude.
+
+set -euo pipefail
+
+usage() {
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+die() { printf 'new-plugin: %s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+name=$1
+description=${2:-"Describe what the $name plugin does"}
+
+for tool in git jq claude; do
+  command -v "$tool" >/dev/null || die "$tool is required"
+done
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+cd "$root"
+
+marketplace=.claude-plugin/marketplace.json
+[[ -f $marketplace ]] || die "$marketplace not found"
+
+[[ $name =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "'$name' must be kebab-case: lowercase letters, digits, single hyphens"
+[[ $name != *-beta ]] || die "'$name' must not end in -beta; the script adds that suffix for the beta channel"
+[[ ! -e plugins/$name ]] || die "plugins/$name already exists"
+[[ ! -e plugins-beta/$name ]] || die "plugins-beta/$name already exists"
+if jq -e --arg n "$name" 'any(.plugins[]; .name == $n or .name == $n + "-beta")' "$marketplace" >/dev/null; then
+  die "the marketplace already has an entry for $name or $name-beta"
+fi
+
+author=$(jq -r '.owner.name' "$marketplace")
+marketplace_name=$(jq -r '.name' "$marketplace")
+
+# Source folder: manifest without a version, and one starter skill named after the plugin.
+mkdir -p "plugins/$name/.claude-plugin" "plugins/$name/skills/$name"
+jq -n --arg n "$name" --arg d "$description" --arg a "$author" \
+  '{name: $n, description: $d, author: {name: $a}}' > "plugins/$name/.claude-plugin/plugin.json"
+
+cat > "plugins/$name/skills/$name/SKILL.md" <<EOF
+---
+name: $name
+description: $description. Use when the user asks for it by name.
+---
+
+Replace this with the instructions Claude follows when the skill runs.
+
+The text the user types after the skill name is available as "\$ARGUMENTS".
+EOF
+
+# Beta shim: manifest without a version, skills symlinked into the source folder.
+mkdir -p "plugins-beta/$name/.claude-plugin"
+jq -n --arg n "$name-beta" --arg d "Beta of the $name plugin. Tracks main." --arg a "$author" \
+  '{name: $n, description: $d, author: {name: $a}}' > "plugins-beta/$name/.claude-plugin/plugin.json"
+ln -s "../../plugins/$name/skills" "plugins-beta/$name/skills"
+
+# Marketplace: beta entry only. The release script adds the stable entry later.
+entry=$(jq -n --arg n "$name-beta" --arg d "Beta of the $name plugin. Tracks main." --arg s "./plugins-beta/$name" \
+  '{name: $n, description: $d, source: $s}')
+jq --argjson entry "$entry" '.plugins += [$entry]' "$marketplace" > "$marketplace.tmp"
+mv "$marketplace.tmp" "$marketplace"
+
+claude plugin validate . >/dev/null || die "marketplace validation failed"
+claude plugin validate "plugins/$name" >/dev/null || die "plugin validation failed"
+
+say "created plugins/$name"
+say "created plugins-beta/$name"
+say "added $name-beta to $marketplace"
+say ""
+say "Next:"
+say "  1. Edit plugins/$name/skills/$name/SKILL.md, or add more skills under plugins/$name/skills/."
+say "  2. Test: claude --plugin-dir ./plugins, then /$name:$name"
+say "  3. Open a pull request. Merging publishes $name-beta@$marketplace_name."
