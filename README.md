@@ -2,23 +2,23 @@
 
 A Claude Code plugin marketplace. Each plugin ships in two channels: a stable channel that users install by default, and a beta channel that follows `main`.
 
+## Layout
+
+```
+.claude-plugin/marketplace.json      the catalog
+plugins/<name>/                      source folder for each plugin
+  .claude-plugin/plugin.json         name: <name>, version: x.y.z
+  skills/<skill>/SKILL.md            the plugin's skills
+plugins-beta/<name>/                 beta shim for each plugin
+  .claude-plugin/plugin.json         name: <name>-beta, no version field
+  skills -> ../../plugins/<name>/skills
+```
+
+`plugins/` holds every file a plugin ships. `plugins-beta/` holds one shim per plugin: a manifest and a symlink into the source folder. Claude Code identifies a plugin by the `name` in its manifest, and two plugins with the same name cannot be installed together, so the beta channel needs a manifest of its own. The `-beta` manifest has no `version` field, so its version is the current commit on `main`, and beta users receive every merge.
+
 ## Create a new plugin
 
-Every plugin occupies two folders under `plugins/`, and a new plugin is listed in the marketplace in its beta channel only until its first release.
-
-```
-plugins/
-  <name>/                            source folder
-    .claude-plugin/plugin.json       name: <name>, version: 0.1.0
-    skills/<skill>/SKILL.md          the plugin's skills
-  <name>-beta/                       beta folder
-    .claude-plugin/plugin.json       name: <name>-beta, no version field
-    skills -> ../<name>/skills       symlink into the source folder
-```
-
-The source folder holds every file the plugin ships. The beta folder holds only a manifest and a symlink. It exists because Claude Code identifies a plugin by the `name` in its manifest, and two plugins with the same name cannot be installed together. The `-beta` manifest has no `version` field, so its version is the current commit on `main`, and beta users receive every merge.
-
-### Steps
+A new plugin is listed in the marketplace in its beta channel only until its first release.
 
 1. Create the source folder with the `plugin-dev` plugin from Anthropic's official marketplace. It carries the current plugin-authoring conventions.
 
@@ -46,14 +46,14 @@ The source folder holds every file the plugin ships. The beta folder holds only 
    }
    ```
 
-3. Create the beta folder by hand.
+3. Create the beta shim by hand.
 
    ```bash
-   mkdir -p plugins/<name>-beta/.claude-plugin
-   ln -s ../<name>/skills plugins/<name>-beta/skills
+   mkdir -p plugins-beta/<name>/.claude-plugin
+   ln -s ../../plugins/<name>/skills plugins-beta/<name>/skills
    ```
 
-   `plugins/<name>-beta/.claude-plugin/plugin.json`:
+   `plugins-beta/<name>/.claude-plugin/plugin.json`:
 
    ```json
    {
@@ -71,7 +71,7 @@ The source folder holds every file the plugin ships. The beta folder holds only 
    {
      "name": "<name>-beta",
      "description": "Beta of the <name> plugin. Tracks main.",
-     "source": "./plugins/<name>-beta"
+     "source": "./plugins-beta/<name>"
    }
    ```
 
@@ -84,7 +84,7 @@ The source folder holds every file the plugin ships. The beta folder holds only 
    claude plugin validate plugins/<name>
    ```
 
-   The validator does not follow the symlink in the beta folder, so validate the source folder directly as well. Validating a beta folder prints a warning that its `skills` directory is a symlink; that is expected.
+   The validator does not follow the symlink in the beta shim, so validate the source folder directly as well. Validating a shim prints a warning that its `skills` directory is a symlink; that is expected.
 
    Both commands print a warning that the beta manifest has no version. That is also expected. Do not pass `--strict`, which turns that warning into a failure.
 
@@ -95,3 +95,35 @@ claude plugin install <name>-beta@plugin-lifecycle-test
 ```
 
 Its skills are available as `/<name>-beta:<skill>`.
+
+## Develop locally
+
+Testing a change does not require merging or installing anything. Start Claude Code from your clone with the source folder loaded as session plugins:
+
+```bash
+claude --plugin-dir ./plugins
+```
+
+Every folder under `plugins/` loads as a plugin for that session. In `/plugin`, the Installed tab lists them with the source `inline`. Their skills are available as `/<name>:<skill>`, for example `/joke:joke cats`.
+
+Installed `-beta` plugins keep working in the same session under their own names, because nothing in `plugins/` shares a name with them. `/joke:joke` runs your working tree and `/joke-beta:joke` runs the installed beta, side by side.
+
+Edit a skill file, then run `/reload-plugins` in the session. The next invocation uses the edited file.
+
+A shell alias makes the flag one word:
+
+```bash
+alias claude-dev='claude --plugin-dir /path/to/your/clone/plugins'
+```
+
+Do not point `--plugin-dir` at `plugins-beta/`. A shim loaded this way has the same name as the installed beta plugin and replaces it for the session, and its symlink is not followed, so the plugin loads with no skills.
+
+## Update an installed beta plugin
+
+Beta plugins do not update on their own. To pick up the current `main`:
+
+```bash
+claude plugin update <name>-beta@plugin-lifecycle-test
+```
+
+Naming the marketplace in the command refreshes the marketplace clone before the lookup. Then run `/reload-plugins` in any open session, or start a new one.
