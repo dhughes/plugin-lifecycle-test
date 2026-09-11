@@ -6,12 +6,12 @@
     {
       "name": "joke-beta",
       "description": "Beta of the joke plugin. Tracks main.",
-      "source": "./plugins/joke-beta"
+      "source": "./plugins-beta/joke"
     },
     {
       "name": "fortune-beta",
       "description": "Beta of the fortune plugin. Tracks main.",
-      "source": "./plugins/fortune-beta"
+      "source": "./plugins-beta/fortune"
     }
   ]
 }
