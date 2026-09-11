@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#
+# sync-beta: make each beta shim mirror its source plugin.
+#
+#   scripts/sync-beta [--check] [name...]
+#
+# For every plugin under plugins/ (or only the named ones), ensures
+# plugins-beta/<name> has a <name>-beta manifest and one symlink per
+# top-level entry of plugins/<name>, and removes symlinks whose target
+# no longer exists. With --check, reports what would change and exits 1
+# if anything would, without touching files.
+#
+# Requires: jq.
+
+set -euo pipefail
+
+usage() {
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+die() { printf 'sync-beta: %s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+
+check=false
+names=()
+for arg in "$@"; do
+  case $arg in
+    --check) check=true ;;
+    -h|--help) usage ;;
+    -*) usage ;;
+    *) names+=("$arg") ;;
+  esac
+done
+
+command -v jq >/dev/null || die "jq is required"
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+cd "$root"
+
+marketplace=.claude-plugin/marketplace.json
+[[ -f $marketplace ]] || die "$marketplace not found"
+author=$(jq -r '.owner.name' "$marketplace")
+
+if [[ ${#names[@]} -eq 0 ]]; then
+  for d in plugins/*/; do
+    [[ -d $d ]] && names+=("$(basename "$d")")
+  done
+fi
+[[ ${#names[@]} -gt 0 ]] || die "no plugins under plugins/"
+
+changes=0
+note() { changes=$((changes + 1)); say "$*"; }
+
+for name in "${names[@]}"; do
+  src=plugins/$name
+  shim=plugins-beta/$name
+  [[ -d $src ]] || die "no plugin at $src"
+  [[ -f $src/.claude-plugin/plugin.json ]] || die "$src has no .claude-plugin/plugin.json"
+
+  # Manifest.
+  manifest=$shim/.claude-plugin/plugin.json
+  if [[ ! -f $manifest ]]; then
+    note "$manifest: create"
+    if ! $check; then
+      mkdir -p "$shim/.claude-plugin"
+      jq -n --arg n "$name-beta" --arg d "Beta of the $name plugin. Tracks main." --arg a "$author" \
+        '{name: $n, description: $d, author: {name: $a}}' > "$manifest"
+    fi
+  else
+    manifest_name=$(jq -r '.name' "$manifest")
+    [[ $manifest_name == "$name-beta" ]] || die "$manifest has name '$manifest_name', expected '$name-beta'"
+    if jq -e 'has("version")' "$manifest" >/dev/null; then
+      die "$manifest has a version field; the beta channel must not have one"
+    fi
+  fi
+
+  # One symlink per top-level entry of the source folder.
+  for entry in "$src"/* "$src"/.[!.]*; do
+    [[ -e $entry || -L $entry ]] || continue
+    base=$(basename "$entry")
+    [[ $base == .claude-plugin ]] && continue
+    link=$shim/$base
+    target=../../plugins/$name/$base
+    if [[ -L $link ]]; then
+      if [[ $(readlink "$link") == "$target" ]]; then
+        continue
+      fi
+      note "$link: repoint to $target"
+      $check || ln -sfn "$target" "$link"
+    elif [[ -e $link ]]; then
+      die "$link is a real file or directory, not a symlink; the shim must contain only .claude-plugin and symlinks"
+    else
+      note "$link: link to $target"
+      $check || ln -s "$target" "$link"
+    fi
+  done
+
+  # Stale symlinks.
+  if [[ -d $shim ]]; then
+    for link in "$shim"/* "$shim"/.[!.]*; do
+      [[ -e $link || -L $link ]] || continue
+      base=$(basename "$link")
+      [[ $base == .claude-plugin ]] && continue
+      if [[ -L $link && ! -e $src/$base ]]; then
+        note "$link: remove, $src/$base no longer exists"
+        $check || rm "$link"
+      fi
+    done
+  fi
+done
+
+# Shims with no source plugin.
+for d in plugins-beta/*/; do
+  [[ -d $d ]] || continue
+  n=$(basename "$d")
+  [[ -d plugins/$n ]] || note "plugins-beta/$n: no plugins/$n; remove it and its marketplace entry by hand"
+done
+
+if [[ $changes -eq 0 ]]; then
+  say "beta shims are in sync"
+elif $check; then
+  say "beta shims are out of date; run scripts/sync-beta"
+  exit 1
+fi

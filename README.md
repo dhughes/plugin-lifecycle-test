@@ -8,16 +8,31 @@ A Claude Code plugin marketplace. Each plugin ships in two channels: a stable ch
 .claude-plugin/marketplace.json      the catalog
 plugins/<name>/                      source folder for each plugin
   .claude-plugin/plugin.json         name: <name>, no version field
-  skills/<skill>/SKILL.md            the plugin's skills
+  skills/, agents/, hooks/, ...      the plugin's components
 plugins-beta/<name>/                 beta shim for each plugin
   .claude-plugin/plugin.json         name: <name>-beta, no version field
   skills -> ../../plugins/<name>/skills
+  agents -> ../../plugins/<name>/agents
+  ...                                one symlink per top-level entry of the source folder
+scripts/new-plugin                   scaffolds a plugin in its beta channel
+scripts/sync-beta                    makes each beta shim mirror its source folder
 scripts/release-plugin               cuts a stable release
 ```
 
-`plugins/` holds every file a plugin ships. `plugins-beta/` holds one shim per plugin: a manifest and a symlink into the source folder. Claude Code identifies a plugin by the `name` in its manifest, and two plugins with the same name cannot be installed together, so the beta channel needs a manifest of its own.
+`plugins/` holds every file a plugin ships. `plugins-beta/` holds the beta shims, described below.
 
 No manifest in this repo has a `version` field. Versions live in the marketplace file.
+
+## Beta shims
+
+A beta shim is the folder Claude Code installs when a user installs `<name>-beta`. It contains no plugin files of its own. It has two things:
+
+- A manifest, `plugins-beta/<name>/.claude-plugin/plugin.json`, whose `name` is `<name>-beta`.
+- One symlink for every top-level folder and file in `plugins/<name>/`, pointing back into that folder.
+
+The shim exists because Claude Code identifies a plugin, and namespaces its skills, by the `name` in the manifest. Stable and beta must have different names, so the beta needs its own manifest. Everything else in the plugin is identical between channels, so it is symlinked rather than copied. When Claude Code installs the beta, it follows the symlinks and copies the real files into the user's plugin cache.
+
+**The shim only mirrors what has a symlink.** A folder or file added to `plugins/<name>/` without a matching symlink in the shim ships to stable and is missing from beta. `scripts/sync-beta` creates and removes the symlinks so the shim matches the source folder, and `scripts/sync-beta --check` fails if any shim is out of date. Run it whenever a top-level folder or file is added to or removed from a plugin.
 
 ## Channels
 
@@ -62,77 +77,45 @@ Skills are namespaced by plugin, so `/joke:joke` and `/joke-beta:joke` coexist.
 
 ## Create a new plugin
 
-1. Create the source folder with the `plugin-dev` plugin from Anthropic's official marketplace. It carries the current plugin-authoring conventions.
+```bash
+scripts/new-plugin <name> "<one-line description>"
+```
 
-   ```bash
-   claude plugin install plugin-dev@claude-plugins-official
-   ```
+`<name>` is kebab-case and becomes the namespace for the plugin's skills, so a skill runs as `/<name>:<skill>`. The script creates the source manifest at `plugins/<name>/.claude-plugin/plugin.json`, the beta shim at `plugins-beta/<name>/`, and the `<name>-beta` entry in `.claude-plugin/marketplace.json`. It does not add a stable entry; the release script does that at the first release. Nothing is committed.
 
-   Start Claude Code at the repo root and run `/plugin-dev:create-plugin`. It asks questions as it goes. Answer these ones as follows:
+Then add components at the root of `plugins/<name>/`. Common ones:
 
-   - **Plugin name**: `<name>`, kebab-case. This becomes the skill namespace, so `/<name>:<skill>`.
-   - **Where to create the plugin**: `plugins/<name>`.
-   - **Initialize a git repo**: no. The folder is already inside this repo.
+```
+skills/<skill>/SKILL.md     a skill, invoked as /<name>:<skill>
+agents/<agent>.md           a subagent
+hooks/hooks.json            event hooks
+.mcp.json                   MCP servers
+scripts/                    helpers referenced by hooks or skills
+```
 
-   Put user-invoked commands in `skills/<skill>/SKILL.md`, not in `commands/`.
+Anthropic's [plugin guide](https://code.claude.com/docs/en/plugins) and [plugin reference](https://code.claude.com/docs/en/plugins-reference) describe every component type and its file format.
 
-2. Remove the `version` field the generator adds. `plugins/<name>/.claude-plugin/plugin.json` must look like this:
+**Important:** after adding or removing a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>`. Without it, the new component is missing from the [beta shim](#beta-shims) and beta users never see it.
 
-   ```json
-   {
-     "name": "<name>",
-     "description": "<one line>",
-     "author": { "name": "<team or person>" }
-   }
-   ```
+Then test locally as described under [Develop locally](#develop-locally), validate, and open a pull request to `main`:
 
-   A version in the manifest overrides the marketplace entry's version and breaks stable updates. The release script refuses to release a plugin whose manifest has one.
+```bash
+scripts/sync-beta --check             # every shim mirrors its source folder
+claude plugin validate .              # the marketplace file and each manifest it references
+claude plugin validate plugins/<name> # the plugin's manifest and component files
+```
 
-3. Create the beta shim by hand.
-
-   ```bash
-   mkdir -p plugins-beta/<name>/.claude-plugin
-   ln -s ../../plugins/<name>/skills plugins-beta/<name>/skills
-   ```
-
-   `plugins-beta/<name>/.claude-plugin/plugin.json`:
-
-   ```json
-   {
-     "name": "<name>-beta",
-     "description": "Beta of the <name> plugin. Tracks main.",
-     "author": { "name": "<team or person>" }
-   }
-   ```
-
-4. Add the beta entry to `.claude-plugin/marketplace.json`.
-
-   ```json
-   {
-     "name": "<name>-beta",
-     "description": "Beta of the <name> plugin. Tracks main.",
-     "source": "./plugins-beta/<name>"
-   }
-   ```
-
-   Do not add a stable entry. The release script adds it at the first release.
-
-5. Validate, then open a pull request to `main`.
-
-   ```bash
-   claude plugin validate .
-   claude plugin validate plugins/<name>
-   ```
-
-   The validator does not follow the symlink in the beta shim, so validate the source folder directly as well. Validating a shim prints a warning that its `skills` directory is a symlink; that is expected.
-
-   Both commands print a warning for every manifest without a version. That is also expected. Do not pass `--strict`, which turns those warnings into failures.
+The marketplace validator does not follow the symlinks in the beta shim, so the plugin's files are only checked by the third command. Both validate commands print a warning for every manifest without a version. That is expected. Do not pass `--strict`, which turns those warnings into failures.
 
 Merging the pull request publishes the plugin to beta users.
+
+Do not add a `version` field to either manifest. A version in a manifest overrides the marketplace entry's version and breaks stable updates. The release script refuses to release a plugin whose manifest has one.
 
 ## Change a plugin
 
 Branch, edit files under `plugins/<name>/`, test locally as described below, open a pull request, merge. Merging publishes the change to beta users. Stable users are not affected until a release.
+
+**Important:** if the change adds or removes a top-level folder or file in `plugins/<name>/`, run `scripts/sync-beta <name>` and commit the shim change in the same pull request. Otherwise the new component is missing from the [beta shim](#beta-shims). `scripts/sync-beta --check` reports any shim that is out of date.
 
 ## Develop locally
 
