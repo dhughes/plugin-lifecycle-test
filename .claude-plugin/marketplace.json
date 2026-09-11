@@ -22,6 +22,17 @@
       "source": "./plugins-beta/joke"
     },
     {
+      "name": "fortune",
+      "description": "Prints a fortune-cookie style fortune",
+      "version": "1.0.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "dhughes/plugin-lifecycle-test",
+        "path": "plugins/fortune",
+        "ref": "fortune--v1.0.0"
+      }
+    },
+    {
       "name": "fortune-beta",
       "description": "Beta of the fortune plugin. Tracks main.",
       "source": "./plugins-beta/fortune"
