@@ -35,7 +35,8 @@ done
 
 command -v jq >/dev/null || die "jq is required"
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+# The repository root is the parent of this script's directory.
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
 marketplace=.claude-plugin/marketplace.json

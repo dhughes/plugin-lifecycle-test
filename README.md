@@ -21,7 +21,20 @@ scripts/release-plugin               cuts a stable release
 
 `plugins/` holds every file a plugin ships. `plugins-beta/` holds the beta shims, described below.
 
-No manifest in this repo has a `version` field. Versions live in the marketplace file.
+No manifest in this repo has a `version` field. This is intentional. Versions live in the marketplace file.
+
+## Prerequisites
+
+The scripts are bash and depend on a few command-line tools. Each script checks for what it needs and exits with a message naming the missing tool.
+
+| Tool | Needed by | Notes |
+| --- | --- | --- |
+| `jq` | all three scripts | reads and edits the JSON manifests and marketplace file. `brew install jq` or `apt install jq`. |
+| `claude` | `new-plugin`, `release-plugin` | validates the marketplace and plugin manifests after a change |
+| `git` | `release-plugin` | tags and pushes the release |
+| `gh` | `release-plugin` | opens the release pull request; must be authenticated (`gh auth login`) |
+
+`sync-beta` only needs `jq`, so contributors who never cut a release can skip the rest.
 
 ## Beta shims
 
@@ -105,7 +118,7 @@ claude plugin validate .              # the marketplace file and each manifest i
 claude plugin validate plugins/<name> # the plugin's manifest and component files
 ```
 
-The marketplace validator does not follow the symlinks in the beta shim, so the plugin's files are only checked by the third command. Both validate commands print a warning for every manifest without a version. That is expected. Do not pass `--strict`, which turns those warnings into failures.
+The marketplace validator does not follow the symlinks in the beta shim, so the plugin's files are only checked by the third command. Both validate commands print a warning for every manifest without a version. **That is expected.** Do not pass `--strict`, which turns those warnings into failures.
 
 Merging the pull request publishes the plugin to beta users.
 

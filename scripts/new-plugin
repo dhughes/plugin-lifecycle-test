@@ -9,7 +9,7 @@
 # Nothing is committed. Add components to plugins/<name>, test with
 # `claude --plugin-dir ./plugins`, then open a pull request.
 #
-# Requires: git, jq, claude.
+# Requires: jq, claude.
 
 set -euo pipefail
 
@@ -25,11 +25,12 @@ say() { printf '%s\n' "$*"; }
 name=$1
 description=${2:-"Describe what the $name plugin does"}
 
-for tool in git jq claude; do
+for tool in jq claude; do
   command -v "$tool" >/dev/null || die "$tool is required"
 done
 
-root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+# The repository root is the parent of this script's directory.
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$root"
 
 marketplace=.claude-plugin/marketplace.json
@@ -75,6 +76,6 @@ say "  .mcp.json                   MCP servers"
 say "  scripts/                    helpers referenced by hooks or skills"
 say "See https://code.claude.com/docs/en/plugins and https://code.claude.com/docs/en/plugins-reference"
 say ""
-say "After adding or removing a top-level folder or file, run: scripts/sync-beta $name"
+say "After adding or removing a top-level folder or file in plugins/$name, run: scripts/sync-beta $name"
 say "Test with: claude --plugin-dir ./plugins"
 say "Then open a pull request. Merging publishes $name-beta@$marketplace_name."
